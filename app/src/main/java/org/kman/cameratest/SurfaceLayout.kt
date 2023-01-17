@@ -51,6 +51,9 @@ class SurfaceLayout(context: Context, attributes: AttributeSet?) : ViewGroup(con
                 surfaceHeight = heightSize
             }
 
+            val videoAspect = mVideoWidth / mVideoHeight.toFloat()
+            val surfaceAspect = surfaceWidth / surfaceHeight.toFloat()
+
             mSurfaceView.measure(
                 MeasureSpec.makeMeasureSpec(surfaceWidth, MeasureSpec.EXACTLY),
                 MeasureSpec.makeMeasureSpec(surfaceHeight, MeasureSpec.EXACTLY)

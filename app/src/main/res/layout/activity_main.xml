@@ -11,6 +11,8 @@
         android:id="@+id/hello_text"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:lines="1"
         android:textAppearance="@android:style/TextAppearance.Material.Body1" />
 
     <org.kman.cameratest.SurfaceLayout

@@ -6,4 +6,8 @@
 
     <string name="init_start">Initializing the camera</string>
     <string name="no_front_facing_camera">No front facing camera</string>
+
+    <string name="camera_error">Camera error: %d</string>
+    <string name="camera_disconnected">Camera disconnected</string>
+    <string name="camera_session_configure_failed">Camera session configure failed</string>
 </resources>
