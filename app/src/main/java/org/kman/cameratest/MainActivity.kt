@@ -142,10 +142,12 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }, mHandler)
     }
 
+    @Suppress("UNUSED_PARAMETER")
     private fun onCameraDisconnected(camera: CameraDevice) {
         mHelloView.text = getString(R.string.camera_disconnected)
     }
 
+    @Suppress("UNUSED_PARAMETER")
     private fun onCameraError(camera: CameraDevice, error: Int) {
         mHelloView.text = getString(R.string.camera_error, error)
     }
@@ -182,6 +184,7 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         mHelloView.setText(R.string.capture_session_running)
     }
 
+    @Suppress("UNUSED_PARAMETER", "SameParameterValue")
     private fun onCaptureSessionConfigureFailed(session: CameraCaptureSession) {
         mHelloView.setText(R.string.camera_session_configure_failed)
     }
