@@ -21,10 +21,18 @@ class SurfaceLayout(context: Context, attributes: AttributeSet?) : ViewGroup(con
         addView(mSurfaceView)
     }
 
-    fun setVideoSize(width: Int, height: Int) {
-       if (mVideoWidth != width || mVideoHeight != height) {
-           mVideoWidth = width
-           mVideoHeight = height
+    fun setVideoSize(width: Int, height: Int, orientation: Int) {
+        var w = width
+        var h = height
+
+        if (orientation == 90 || orientation == 270) {
+            w = height
+            h = width
+        }
+
+       if (mVideoWidth != w || mVideoHeight != h) {
+           mVideoWidth = w
+           mVideoHeight = h
 
            requestLayout()
        }

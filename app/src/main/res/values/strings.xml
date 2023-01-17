@@ -10,4 +10,6 @@
     <string name="camera_error">Camera error: %d</string>
     <string name="camera_disconnected">Camera disconnected</string>
     <string name="camera_session_configure_failed">Camera session configure failed</string>
+
+    <string name="capture_session_running">Capturing…</string>
 </resources>

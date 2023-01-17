@@ -80,6 +80,7 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         MyLog.i(TAG, "surfaceChanged: %d x %d", width, height)
 
+        mPreviewSurface = holder.surface
         mSurfaceLayout.requestLayout()
     }
 
@@ -177,6 +178,8 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         )
 
         mVideoEncoder?.start()
+
+        mHelloView.setText(R.string.capture_session_running)
     }
 
     private fun onCaptureSessionConfigureFailed(session: CameraCaptureSession) {
@@ -210,11 +213,15 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val char = cameraManager.getCameraCharacteristics(frontCameraId)
         val streamConfigMap =
             requireNotNull(char.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP))
+        val orientation = char.get(CameraCharacteristics.SENSOR_ORIENTATION)
         val previewSizeList = streamConfigMap.getOutputSizes(SurfaceHolder::class.java)
-        val previewSize = choosePreviewSize(previewSizeList, 640, 480)
+        val previewSize =
+            choosePreviewSize(previewSizeList, 1024, 768)
 
         mSurfaceHolder.setFixedSize(previewSize.width, previewSize.height)
-        mSurfaceLayout.setVideoSize(previewSize.width, previewSize.height)
+        mSurfaceLayout.setVideoSize(previewSize.width, previewSize.height, orientation ?: 0)
+
+        mPreviewSurface = mSurfaceHolder.surface
 
         mVideoEncodeSize = previewSize
 
@@ -252,7 +259,8 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
             (o1.width * o1.height).compareTo(o2.width * o2.height)
         }
         found = sorted.find { size ->
-            size.width * size.height >= desiredWidth * desiredHeight &&
+            size.width >= desiredWidth &&
+                    size.height >= desiredHeight &&
                     size.width * desiredHeight == size.height * desiredWidth
         }
         if (found != null) {
@@ -260,7 +268,7 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
 
         found = sorted.find { size ->
-            size.width * size.height >= desiredWidth * desiredHeight
+            size.width >= desiredWidth && size.height >= desiredHeight
         }
         if (found != null) {
             return found
@@ -295,6 +303,6 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         )
         private const val PERM_CODE = 1
 
-        private const val RECORDER_VIDEO_BITRATE = 10_000_000
+        private const val RECORDER_VIDEO_BITRATE = 1_500_000
     }
 }
