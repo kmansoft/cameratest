@@ -21,6 +21,15 @@ class SurfaceLayout(context: Context, attributes: AttributeSet?) : ViewGroup(con
         addView(mSurfaceView)
     }
 
+    fun setVideoSize(width: Int, height: Int) {
+       if (mVideoWidth != width || mVideoHeight != height) {
+           mVideoWidth = width
+           mVideoHeight = height
+
+           requestLayout()
+       }
+    }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val widthSize = MeasureSpec.getSize(widthMeasureSpec)
         val heightSize = MeasureSpec.getSize(heightMeasureSpec)

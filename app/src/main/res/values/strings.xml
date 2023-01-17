@@ -3,4 +3,7 @@
 
     <string name="has_permissions">Permission check OK</string>
     <string name="no_permissions">No permissions</string>
+
+    <string name="init_start">Initializing the camera</string>
+    <string name="no_front_facing_camera">No front facing camera</string>
 </resources>
