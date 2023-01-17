@@ -3,11 +3,8 @@ package org.kman.cameratest
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
-import android.hardware.camera2.CameraCaptureSession
-import android.hardware.camera2.CameraCharacteristics
-import android.hardware.camera2.CameraDevice
-import android.hardware.camera2.CameraManager
-import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.*
+import android.media.MediaFormat
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.os.Handler
@@ -18,7 +15,6 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
-import androidx.core.app.ActivityCompat
 
 class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -68,14 +64,13 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
     override fun onDestroy() {
         super.onDestroy()
 
-        mCaptureSession?.close()
-        mCamera?.close()
+        cleanup()
     }
 
     // Surface holder callback
 
     override fun surfaceCreated(holder: SurfaceHolder) {
-        mSurface = holder.surface
+        mPreviewSurface = holder.surface
 
         if (hasPermissions()) {
             init()
@@ -89,12 +84,34 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        mSurface = null
+        mPreviewSurface = null
 
-        mCaptureSession?.close()
-        mCamera?.close()
+        cleanup()
 
         mIsInitDone = false
+    }
+
+    private fun cleanup() {
+        mVideoEncoder?.shutdown()
+        mVideoEncoder = null
+        mVideoEncoderSurface?.release()
+        mVideoEncoderSurface = null
+
+        mCaptureSession?.close()
+        mCaptureSession = null
+
+        mCamera?.close()
+        mCamera = null
+    }
+
+    private fun createVideoEncoder(width: Int, height: Int): EncoderWrapper {
+        val mimeType = MediaFormat.MIMETYPE_VIDEO_AVC
+        val codecProfile = -1
+
+        return EncoderWrapper(
+            width, height, RECORDER_VIDEO_BITRATE, 30,
+            mimeType, codecProfile
+        )
     }
 
     // Camera callback
@@ -102,9 +119,16 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun onCameraOpened(camera: CameraDevice) {
         mCamera = camera
 
-        val surface = mSurface ?: return
+        val previewSurface = mPreviewSurface ?: return
+        val encodeSize = mVideoEncodeSize ?: return
 
-        val surfaceList = arrayListOf(surface)
+        val videoEncoder = createVideoEncoder(encodeSize.width, encodeSize.height)
+        val videoEncoderSurface = videoEncoder.getInputSurface()
+
+        mVideoEncoder = videoEncoder
+        mVideoEncoderSurface = videoEncoderSurface
+
+        val surfaceList = arrayListOf(previewSurface, videoEncoderSurface)
         @Suppress("DEPRECATION")
         camera.createCaptureSession(surfaceList, object : CameraCaptureSession.StateCallback() {
             override fun onConfigured(session: CameraCaptureSession) {
@@ -128,13 +152,31 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun onCaptureSessionConfigured(session: CameraCaptureSession) {
         mCaptureSession = session
 
-        val surface = mSurface ?: return
+        val previewSurface = mPreviewSurface ?: return
+        val videoEncoderSurface = mVideoEncoderSurface ?: return
+
         val camera = mCamera ?: return
+
         val captureRequest = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
-            addTarget(surface)
+            addTarget(previewSurface)
+            addTarget(videoEncoderSurface)
         }.build()
 
-        session.setRepeatingRequest(captureRequest, null, mHandler)
+        session.setRepeatingRequest(
+            captureRequest,
+            object : CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureCompleted(
+                    session: CameraCaptureSession,
+                    request: CaptureRequest,
+                    result: TotalCaptureResult
+                ) {
+                    mVideoEncoder?.frameAvailable()
+                }
+            },
+            mHandler
+        )
+
+        mVideoEncoder?.start()
     }
 
     private fun onCaptureSessionConfigureFailed(session: CameraCaptureSession) {
@@ -143,7 +185,7 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     @SuppressLint("MissingPermission")
     private fun init() {
-        if (mIsInitDone || mSurface == null) {
+        if (mIsInitDone || mPreviewSurface == null) {
             return
         }
         mIsInitDone = true
@@ -166,12 +208,15 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
         // Set preview size
         val char = cameraManager.getCameraCharacteristics(frontCameraId)
-        val streamConfigMap = requireNotNull(char.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP))
+        val streamConfigMap =
+            requireNotNull(char.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP))
         val previewSizeList = streamConfigMap.getOutputSizes(SurfaceHolder::class.java)
         val previewSize = choosePreviewSize(previewSizeList, 640, 480)
 
         mSurfaceHolder.setFixedSize(previewSize.width, previewSize.height)
         mSurfaceLayout.setVideoSize(previewSize.width, previewSize.height)
+
+        mVideoEncodeSize = previewSize
 
         // Open the camera
         cameraManager.openCamera(frontCameraId, object : CameraDevice.StateCallback() {
@@ -234,17 +279,22 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private var mIsStopped = true
     private var mIsInitDone = false
     private var mCameraManager: CameraManager? = null
-    private var mSurface: Surface? = null
+    private var mPreviewSurface: Surface? = null
     private var mCamera: CameraDevice? = null
     private var mCaptureSession: CameraCaptureSession? = null
+    private var mVideoEncoder: EncoderWrapper? = null
+    private var mVideoEncoderSurface: Surface? = null
+    private var mVideoEncodeSize: Size? = null
 
     companion object {
         private const val TAG = "MainActivity"
 
         private val PERM_LIST = arrayOf(
-            android.Manifest.permission.CAMERA,
-            android.Manifest.permission.RECORD_AUDIO
+            Manifest.permission.CAMERA,
+            Manifest.permission.RECORD_AUDIO
         )
         private const val PERM_CODE = 1
+
+        private const val RECORDER_VIDEO_BITRATE = 10_000_000
     }
 }
