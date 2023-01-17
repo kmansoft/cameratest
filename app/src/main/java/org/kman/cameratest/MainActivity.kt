@@ -14,6 +14,12 @@ class MainActivity : AppCompatActivity() {
         mHelloView = findViewById(R.id.hello_text)
     }
 
+    override fun onStop() {
+        super.onStop()
+
+        mHasBeenStopped = true
+    }
+
     override fun onResume() {
         super.onResume()
 
@@ -21,8 +27,13 @@ class MainActivity : AppCompatActivity() {
             mHelloView.setText(R.string.has_permissions)
         } else {
             mHelloView.text = getString(R.string.no_permissions)
-            requestPermissions(PERM_LIST, PERM_CODE)
+
+            if (mHasBeenStopped) {
+                requestPermissions(PERM_LIST, PERM_CODE)
+            }
         }
+
+        mHasBeenStopped = false
     }
 
     private fun hasPermissions(): Boolean {
@@ -32,6 +43,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var mHelloView: TextView
+    private var mHasBeenStopped = false
 
     companion object {
         private val PERM_LIST = arrayOf(
