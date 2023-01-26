@@ -1,8 +1,10 @@
 package org.kman.cameratest
 
+import android.annotation.SuppressLint
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
@@ -27,6 +29,8 @@ class EncoderWrapper(
         private const val TAG = "EncoderWrapper"
         private const val IFRAME_INTERVAL = 1 // sync one frame every second
     }
+
+    private var mUseCallback = false
 
     private val mEncoder = MediaCodec.createEncoderByType(mimeType)
 
@@ -63,6 +67,37 @@ class EncoderWrapper(
 
         if (VERBOSE) MyLog.d(TAG, "format: %s", format)
 
+        // We will need our thread handler for callbacks
+        mEncoderThread.start()
+        mEncoderThread.waitUntilReady()
+
+        @SuppressLint("ObsoleteSdkInt")
+        if (Build.VERSION.SDK_INT >= 23) {
+            mUseCallback = true
+
+            mEncoder.setCallback(object : MediaCodec.Callback() {
+                override fun onInputBufferAvailable(codec: MediaCodec, index: Int) {
+                    // Nothing
+                }
+
+                override fun onOutputBufferAvailable(
+                    codec: MediaCodec,
+                    index: Int,
+                    info: MediaCodec.BufferInfo
+                ) {
+                    mEncoderThread.onEncoderOutputBufferAvailable(codec, index, info)
+                }
+
+                override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
+                    mEncoderThread.onEncoderOutputFormatChanged(codec, format);
+                }
+
+                override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
+                    mEncoderThread.onEncoderError(codec, e)
+                }
+            }, mEncoderThread.mHandler)
+        }
+
         // Create a MediaCodec encoder, and configure it with our format.  Get a Surface
         // we can use for input and wrap it with a class that handles the EGL work.
         mEncoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
@@ -86,11 +121,6 @@ class EncoderWrapper(
 
     fun start() {
         mEncoder.start()
-
-        // Start the encoder thread last.  That way we're sure it can see all of the state
-        // we've initialized.
-        mEncoderThread.start()
-        mEncoderThread.waitUntilReady()
     }
 
     /**
@@ -117,12 +147,14 @@ class EncoderWrapper(
      * Notifies the encoder thread that a new frame is available to the encoder.
      */
     fun frameAvailable() {
-        val handler = mEncoderThread.getHandler()
-        handler.sendMessage(
-            handler.obtainMessage(
-                EncoderThread.EncoderHandler.MSG_FRAME_AVAILABLE
+        if (!mUseCallback) {
+            val handler = mEncoderThread.getHandler()
+            handler.sendMessage(
+                handler.obtainMessage(
+                    EncoderThread.EncoderHandler.MSG_FRAME_AVAILABLE
+                )
             )
-        )
+        }
     }
 
     fun waitForFirstFrame() {
@@ -241,7 +273,7 @@ class EncoderWrapper(
                 val encoderStatus = mEncoder.dequeueOutputBuffer(mBufferInfo, TIMEOUT_USEC)
                 if (encoderStatus == MediaCodec.INFO_TRY_AGAIN_LATER) {
                     // no output available yet
-                    break;
+                    break
                 } else if (encoderStatus == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                     // Should happen before receiving buffers, and should only happen once.
                     // The MediaFormat contains the csd-0 and csd-1 keys, which we'll need
@@ -273,11 +305,12 @@ class EncoderWrapper(
                     if (mBufferInfo.size != 0) {
                         encodedFrame = true
 
-                        var peek: ByteArray?
-                        val isKeyFrame = (mBufferInfo.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0
+                        val peek: ByteArray?
+                        val isKeyFrame =
+                            (mBufferInfo.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0
                         if (isKeyFrame) {
                             peek = ByteArray(16)
-                            encodedData.get(peek)
+                            encodedData.get(peek, mBufferInfo.offset, peek.size)
                         }
 
                         if (VERBOSE) {
@@ -317,6 +350,56 @@ class EncoderWrapper(
             }
         }
 
+        @Suppress("UNUSED_PARAMETER")
+        fun onEncoderOutputBufferAvailable(
+            codec: MediaCodec,
+            index: Int,
+            info: MediaCodec.BufferInfo
+        ) {
+            val buf = mEncoder.getOutputBuffer(index)
+            if (buf != null) {
+                if ((info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+                    // The codec config data was pulled out when we got the
+                    // INFO_OUTPUT_FORMAT_CHANGED status.  The MediaMuxer won't accept
+                    // a single big blob -- it wants separate csd-0/csd-1 chunks --
+                    // so simply saving this off won't work.
+                    if (VERBOSE) MyLog.d(TAG, "ignoring BUFFER_FLAG_CODEC_CONFIG")
+                    // CSD frames mBufferInfo.size = 0
+                }
+
+                if (info.size != 0) {
+                    val peek: ByteArray?
+                    val isKeyFrame =
+                        (info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0
+                    if (isKeyFrame) {
+                        peek = ByteArray(16)
+                        buf.get(peek, info.offset, peek.size)
+                    }
+
+                    if (VERBOSE) {
+                        MyLog.d(
+                            TAG,
+                            "Got %d  encoded bytes, ts=%d, key = %b",
+                            info.size, info.presentationTimeUs,
+                            isKeyFrame
+                        )
+                    }
+                }
+            }
+
+            mEncoder.releaseOutputBuffer(index, false)
+        }
+
+        @Suppress("UNUSED_PARAMETER")
+        fun onEncoderOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
+            mEncodedFormat = format;
+        }
+
+        @Suppress("UNUSED_PARAMETER")
+        fun onEncoderError(codec: MediaCodec, e: MediaCodec.CodecException) {
+            MyLog.w(TAG, "Encoder error", e)
+        }
+
         /**
          * Tells the Looper to quit.
          */
@@ -331,7 +414,7 @@ class EncoderWrapper(
          * <p>
          * The object is created on the encoder thread.
          */
-        class EncoderHandler(et: EncoderThread) : Handler(Looper.myLooper()!!) {
+        class EncoderHandler(et: EncoderThread) : Handler(requireNotNull(Looper.myLooper())) {
             companion object {
                 const val MSG_FRAME_AVAILABLE: Int = 0
                 const val MSG_SHUTDOWN: Int = 1
